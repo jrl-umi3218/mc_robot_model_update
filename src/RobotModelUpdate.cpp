@@ -93,10 +93,23 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
 
   mc_rtc::log::info("Robot Update is:\n{}", robotUpdate.dump(true, true));
 
+  // TODO: load as a schema
+  std::vector<std::string> humanNames;
+  for(const auto & [humanName, _] :
+      static_cast<std::map<std::string, mc_rtc::Configuration>>(config_("human", mc_rtc::Configuration{})))
+  {
+    humanNames.push_back(humanName);
+  }
+
   gui.removeElements(this);
-  gui.addElement(this, {"Plugin", "RobotModelUpdate", robot_},
-                 mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
-                 mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }));
+  gui.addElement(
+      this, {"Plugin", "RobotModelUpdate", robot_},
+      mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
+      mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }),
+      // mc_rtc::gui::Button("Load Human Measurement config", [this, &ctl]() { configFromHumanMeasurements(); }),
+      mc_rtc::gui::ComboInput(
+          "Load Human Measurement config", humanNames, [this]() { return humanName_; },
+          [this](const std::string & humanName) { configFromHumanMeasurements(humanName); }));
 
   gui.addElement(this, {},
                  mc_rtc::gui::Button("Rescale human model",
@@ -112,6 +125,44 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
                          mc_rtc::log::info("Updated robot schema:\n{}", robotUpdate.dump(true, true));
                          updateRobotModel(ctl);
                        });
+}
+
+void RobotModelUpdate::configFromHumanMeasurements(const std::string & humanName)
+{
+  humanName_ = humanName;
+  auto bodyDim = config_("human")(humanName);
+  double BodyHeight = bodyDim("BodyHeight");
+  double HipHeight = bodyDim("HipHeight");
+  double LegHeight = HipHeight - 0.1;
+  double HipWidth = bodyDim("HipWidth");
+  double LegsWidth = HipWidth - 0.03;
+  double ShoulderHeight = bodyDim("ShoulderHeight");
+  double ArmHeight = ShoulderHeight - 0.15;
+  double ShoulderWidth = bodyDim("ShoulderWidth");
+  double ArmsWidth = ShoulderWidth - 0.06;
+  double ElbowSpan = bodyDim("ElbowSpan");
+  double WristSpan = bodyDim("WristSpan");
+  double KneeHeight = bodyDim("KneeHeight");
+  double AnkleHeight = bodyDim("AnkleHeight");
+
+  auto & joints = robotUpdate.joints;
+  joints.clear();
+  joints.push_back(RobotUpdateJoint{"Head_0", Eigen::Vector3d{-0.03, 0, ShoulderHeight - HipHeight}});
+  joints.push_back(RobotUpdateJoint{"Torso_0", Eigen::Vector3d{0, 0, LegHeight - HipHeight}});
+  joints.push_back(RobotUpdateJoint{"LArm_0", Eigen::Vector3d{-0.03, ArmsWidth / 2, ArmHeight - HipHeight}});
+  joints.push_back(RobotUpdateJoint{"LElbow", Eigen::Vector3d{0, ((ElbowSpan - ArmsWidth) / 2) * 0.66, 0}});
+  joints.push_back(RobotUpdateJoint{"LForearm", Eigen::Vector3d{0, ((ElbowSpan - ArmsWidth) / 2) * 0.33, 0}});
+  joints.push_back(RobotUpdateJoint{"LWrist_0", Eigen::Vector3d{0, (WristSpan - ElbowSpan) / 2, 0}});
+  joints.push_back(RobotUpdateJoint{"RArm_0", Eigen::Vector3d{-0.03, -ArmsWidth / 2, ArmHeight - HipHeight}});
+  joints.push_back(RobotUpdateJoint{"RElbow", Eigen::Vector3d{0, -((ElbowSpan - ArmsWidth) / 2) * 0.66, 0}});
+  joints.push_back(RobotUpdateJoint{"RForearm", Eigen::Vector3d{0, -((ElbowSpan - ArmsWidth) / 2) * 0.33, 0}});
+  joints.push_back(RobotUpdateJoint{"RWrist_0", Eigen::Vector3d{0, -(WristSpan - ElbowSpan) / 2, 0}});
+  joints.push_back(RobotUpdateJoint{"LLeg_0", Eigen::Vector3d{0, LegsWidth / 2, LegHeight - HipHeight}});
+  joints.push_back(RobotUpdateJoint{"LShin_0", Eigen::Vector3d{0, 0, KneeHeight - LegHeight}});
+  joints.push_back(RobotUpdateJoint{"LAnkle_0", Eigen::Vector3d{0, 0, AnkleHeight - KneeHeight}});
+  joints.push_back(RobotUpdateJoint{"RLeg_0", Eigen::Vector3d{0, -LegsWidth / 2, LegHeight - HipHeight}});
+  joints.push_back(RobotUpdateJoint{"RShin_0", Eigen::Vector3d{0, 0, KneeHeight - LegHeight}});
+  joints.push_back(RobotUpdateJoint{"RAnkle_0", Eigen::Vector3d{0, 0, AnkleHeight - KneeHeight}});
 }
 
 void RobotModelUpdate::configFromXsens(mc_control::MCController & ctl)

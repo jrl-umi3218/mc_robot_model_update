@@ -53,13 +53,29 @@ struct RobotModelUpdate : public mc_control::GlobalPlugin
 protected:
   void updateRobotModel(mc_control::MCController & ctl);
   void resetToDefault(mc_control::MCController & robot);
+
+  /**
+   * Estimate the configuration from Xsens sensors
+   */
   void configFromXsens(mc_control::MCController & ctl);
+
+  /**
+   * Load from a manually provided human measurement configuration
+   * It is located in
+   * ```yaml
+   * human:
+   *  <human_name>:
+   *    ...
+   * ```
+   */
+  void configFromHumanMeasurements(const std::string & humanName);
 
 protected:
   std::string robot_;
   bool firstScale_ = true;
   RobotUpdate robotUpdate;
   RobotUpdate defaultRobotUpdate_;
+  std::string humanName_ = "";
 
 private:
   mc_rtc::Configuration config_;
