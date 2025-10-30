@@ -52,13 +52,14 @@ struct RobotModelUpdate : public mc_control::GlobalPlugin
 
 protected:
   void updateRobotModel(mc_control::MCController & ctl);
-  void resetToDefault(mc_rbdyn::Robot & robot);
+  void resetToDefault(mc_control::MCController & robot);
   void configFromXsens(mc_control::MCController & ctl);
 
 protected:
   std::string robot_;
   bool firstScale_ = true;
   RobotUpdate robotUpdate;
+  RobotUpdate defaultRobotUpdate_;
 
 private:
   mc_rtc::Configuration config_;

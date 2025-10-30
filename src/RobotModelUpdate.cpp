@@ -89,17 +89,13 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
   mc_rtc::log::info("Conf is:\n{}", conf.dump(true, true));
 
   robotUpdate.load(conf);
+  defaultRobotUpdate_ = robotUpdate;
 
   mc_rtc::log::info("Robot Update is:\n{}", robotUpdate.dump(true, true));
 
   gui.removeElements(this);
   gui.addElement(this, {"Plugin", "RobotModelUpdate", robot_},
-                 mc_rtc::gui::Button("Reset to default",
-                                     [this, &ctl]()
-                                     {
-                                       resetToDefault(ctl.robot(robot_));
-                                       resetToDefault(ctl.outputRobot(robot_));
-                                     }),
+                 mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
                  mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }));
 
   gui.addElement(this, {},
@@ -113,7 +109,7 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
   robotUpdate.addToGUI(gui, {"Plugin", "RobotModelUpdate", robot_}, "Update robot model from loaded config",
                        [this, &ctl]()
                        {
-                         mc_rtc::log::info("Updated robot schema");
+                         mc_rtc::log::info("Updated robot schema:\n{}", robotUpdate.dump(true, true));
                          updateRobotModel(ctl);
                        });
 }
@@ -353,15 +349,50 @@ void RobotModelUpdate::configFromXsens(mc_control::MCController & ctl)
   }
 }
 
-void RobotModelUpdate::resetToDefault(mc_rbdyn::Robot & robot)
+void RobotModelUpdate::resetToDefault(mc_control::MCController & ctl)
 {
-  auto robots = mc_rbdyn::loadRobot(robot.module());
-  auto & defaultRobot = robots->robot();
-  robot.mb() = defaultRobot.mb();
-  robot.mbg() = defaultRobot.mbg();
-  robot.forwardKinematics();
-  robot.forwardVelocity();
-  robot.forwardAcceleration();
+  auto resetRobot = [this](mc_rbdyn::Robot & robot)
+  {
+    auto robots = mc_rbdyn::loadRobot(robot.module());
+    auto & defaultRobot = robots->robot();
+    robot.mb() = defaultRobot.mb();
+    robot.mbg() = defaultRobot.mbg();
+
+    // Restore scaleV of all visuals
+    auto & visuals = const_cast<mc_rbdyn::RobotModule &>(robot.module())._visual;
+    const auto & originalVisuals = defaultRobot.module()._visual;
+    for(const auto & body : robot.mb().bodies())
+    {
+      auto bName = body.name();
+      mc_rtc::log::info("Processing visuals for body {}", bName);
+      if(visuals.count(bName) == 0) continue;
+
+      for(size_t i = 0; i < visuals[bName].size(); i++)
+      {
+        auto & v = visuals[bName][i];
+        const auto & ov = originalVisuals.at(bName)[i];
+        if(v.geometry.type == rbd::parsers::Geometry::MESH && ov.geometry.type == rbd::parsers::Geometry::MESH)
+        {
+          auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(v.geometry.data);
+          const auto & oMesh = boost::get<rbd::parsers::Geometry::Mesh>(ov.geometry.data);
+          mesh.scaleV = mesh.scaleV.cwiseQuotient(oMesh.scaleV);
+          mc_rtc::log::info("Resetting visual mesh scale for body {} visual {} to {}", bName, i,
+                            mesh.scaleV.transpose());
+        }
+      }
+    }
+
+    robot.forwardKinematics();
+    robot.forwardVelocity();
+    robot.forwardAcceleration();
+  };
+
+  resetRobot(ctl.robot(robot_));
+  resetRobot(ctl.outputRobot(robot_));
+
+  // Apply default update from config
+  robotUpdate = defaultRobotUpdate_;
+  updateRobotModel(ctl);
 }
 
 void RobotModelUpdate::updateRobotModel(mc_control::MCController & ctl)
@@ -398,6 +429,7 @@ void RobotModelUpdate::updateRobotModel(mc_control::MCController & ctl)
         if(body.name == parentName)
         {
           newScale = body.scale;
+          mc_rtc::log::info("Updated scale for body {} to {}", body.name, newScale.transpose());
         }
       }
       // apply the new scale of the body to the translation of the surface transform
@@ -438,13 +470,18 @@ void RobotModelUpdate::updateRobotModel(mc_control::MCController & ctl)
     auto & visuals = const_cast<mc_rbdyn::RobotModule &>(robot.module())._visual;
     for(const auto & body : robotUpdate.bodies)
     {
+      mc_rtc::log::info("Processing visuals for body {}", body.name);
+      if(visuals.find(body.name) == visuals.end())
+      {
+        mc_rtc::log::info("No visuals found for body {}", body.name);
+        continue;
+      }
       for(auto & visual : visuals[body.name])
       {
         if(visual.geometry.type == rbd::parsers::Geometry::MESH)
         {
           auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(visual.geometry.data);
           mesh.scaleV = mesh.scaleV.cwiseProduct(body.scale);
-          mc_rtc::log::info("Updated visual {} with scale {}", body.name, body.scale.transpose());
         }
       }
     }
