@@ -2,6 +2,7 @@
 
 #include <mc_control/GlobalPluginMacros.h>
 #include <mc_rbdyn/RobotLoader.h>
+#include <mc_rtc/Configuration.h>
 #include <sch-core/S_Polyhedron.h>
 #include "Convex.h"
 
@@ -14,14 +15,23 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
 {
   auto & ctl = controller.controller();
 
-  mc_rtc::log::info("RobotModelUpdate::init called with configuration:\n{}", config.dump(true, true));
   config_ = config;
+  mc_rtc::log::info("[RobotModelUpdate] init called with configuration:\n{}", config.dump(true, true));
   if(auto ctlConfig = ctl.config().find("RobotModelUpdate"))
   {
+    mc_rtc::log::info("[RobotModelUpdate] Merging with controller configuration:\n{}", ctlConfig->dump(true, true));
     config_.load(*ctlConfig);
   }
-  robot_ = config_("robot", ctl.robot().name());
-  auto & robot = ctl.robot(robot_);
+
+  mc_rtc::log::info("[RobotModelUpdate] Loading plugin configuration schema from config");
+  pluginConfig_.load(config);
+  if(pluginConfig_.robot.empty())
+  {
+    pluginConfig_.robot = ctl.robot().name();
+    mc_rtc::log::info("[RobotModelUpdate] Robot is {}", pluginConfig_.robot);
+  }
+
+  auto & robot = ctl.robot(pluginConfig_.robot);
   ctl.datastore().make_call("RobotModelUpdate::LoadConfig", [this, &ctl]() { configFromXsens(ctl); });
   ctl.datastore().make_call("RobotModelUpdate::UpdateModel", [this, &ctl]() { updateRobotModel(ctl); });
 
@@ -77,10 +87,11 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
 void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
 {
   mc_rtc::log::info("RobotModelUpdate::reset called");
+  auto & robotName = pluginConfig_.robot;
 
   auto & ctl = controller.controller();
   auto & gui = *ctl.gui();
-  auto & robot = ctl.robot(robot_);
+  auto & robot = ctl.robot(robotName);
 
   std::vector<RobotUpdateJoint> joints;
 
@@ -102,14 +113,12 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
   }
 
   gui.removeElements(this);
-  gui.addElement(
-      this, {"Plugin", "RobotModelUpdate", robot_},
-      mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
-      mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }),
-      // mc_rtc::gui::Button("Load Human Measurement config", [this, &ctl]() { configFromHumanMeasurements(); }),
-      mc_rtc::gui::ComboInput(
-          "Load Human Measurement config", humanNames, [this]() { return humanName_; },
-          [this](const std::string & humanName) { configFromHumanMeasurements(humanName); }));
+  gui.addElement(this, {"Plugin", "RobotModelUpdate", robotName},
+                 mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
+                 mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }),
+                 mc_rtc::gui::ComboInput(
+                     "Load Human Measurement config", humanNames, [this]() { return humanName_; },
+                     [this](const std::string & humanName) { configFromHumanMeasurements(humanName); }));
 
   gui.addElement(this, {},
                  mc_rtc::gui::Button("Rescale human model",
@@ -119,7 +128,7 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
                                        updateRobotModel(ctl);
                                      }));
 
-  robotUpdate.addToGUI(gui, {"Plugin", "RobotModelUpdate", robot_}, "Update robot model from loaded config",
+  robotUpdate.addToGUI(gui, {"Plugin", "RobotModelUpdate", robotName}, "Update robot model from loaded config",
                        [this, &ctl]()
                        {
                          mc_rtc::log::info("Updated robot schema:\n{}", robotUpdate.dump(true, true));
@@ -130,20 +139,27 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
 void RobotModelUpdate::configFromHumanMeasurements(const std::string & humanName)
 {
   humanName_ = humanName;
-  auto bodyDim = config_("human")(humanName);
-  double BodyHeight = bodyDim("BodyHeight");
-  double HipHeight = bodyDim("HipHeight");
+  if(pluginConfig_.human.count(humanName) == 0)
+  {
+    mc_rtc::log::error(
+        "[RobotModelUpdate] Failed to load human from measurements config, no object human->{} in the configuration",
+        humanName);
+    return;
+  }
+  const auto & bodyDim = pluginConfig_.human.at(humanName_);
+  double BodyHeight = bodyDim.BodyHeight;
+  double HipHeight = bodyDim.HipHeight;
   double LegHeight = HipHeight - 0.1;
-  double HipWidth = bodyDim("HipWidth");
+  double HipWidth = bodyDim.HipWidth;
   double LegsWidth = HipWidth - 0.03;
-  double ShoulderHeight = bodyDim("ShoulderHeight");
+  double ShoulderHeight = bodyDim.ShoulderHeight;
   double ArmHeight = ShoulderHeight - 0.15;
-  double ShoulderWidth = bodyDim("ShoulderWidth");
+  double ShoulderWidth = bodyDim.ShoulderWidth;
   double ArmsWidth = ShoulderWidth - 0.06;
-  double ElbowSpan = bodyDim("ElbowSpan");
-  double WristSpan = bodyDim("WristSpan");
-  double KneeHeight = bodyDim("KneeHeight");
-  double AnkleHeight = bodyDim("AnkleHeight");
+  double ElbowSpan = bodyDim.ElbowSpan;
+  double WristSpan = bodyDim.WristSpan;
+  double KneeHeight = bodyDim.KneeHeight;
+  double AnkleHeight = bodyDim.AnkleHeight;
 
   auto & joints = robotUpdate.joints;
   joints.clear();
@@ -167,6 +183,8 @@ void RobotModelUpdate::configFromHumanMeasurements(const std::string & humanName
 
 void RobotModelUpdate::configFromXsens(mc_control::MCController & ctl)
 {
+  auto & robotName = pluginConfig_.robot;
+
   // New version: using data directly from xsens to scale
   // step 1: get poses (world frame)
   auto X_Hips_0 = ctl.datastore()
@@ -308,7 +326,7 @@ void RobotModelUpdate::configFromXsens(mc_control::MCController & ctl)
     scaleHips = Eigen::Vector3d{0.9, 1, 1};
   }
 
-  auto & robot = ctl.robot(robot_);
+  auto & robot = ctl.robot(robotName);
 
   // get original relative transform of joints and compare to new transforms
 
@@ -438,8 +456,8 @@ void RobotModelUpdate::resetToDefault(mc_control::MCController & ctl)
     robot.forwardAcceleration();
   };
 
-  resetRobot(ctl.robot(robot_));
-  resetRobot(ctl.outputRobot(robot_));
+  resetRobot(ctl.robot(pluginConfig_.robot));
+  resetRobot(ctl.outputRobot(pluginConfig_.robot));
 
   // Apply default update from config
   robotUpdate = defaultRobotUpdate_;
@@ -448,8 +466,8 @@ void RobotModelUpdate::resetToDefault(mc_control::MCController & ctl)
 
 void RobotModelUpdate::updateRobotModel(mc_control::MCController & ctl)
 {
-  auto & robot = ctl.robot(robot_);
-  auto & outputRobot = ctl.outputRobot(robot_);
+  auto & robot = ctl.robot(pluginConfig_.robot);
+  auto & outputRobot = ctl.outputRobot(pluginConfig_.robot);
 
   auto updateRobot = [&](mc_rbdyn::Robot & robot, const RobotUpdate & robotUpdate)
   {
@@ -549,7 +567,7 @@ void RobotModelUpdate::updateRobotModel(mc_control::MCController & ctl)
 void RobotModelUpdate::before(mc_control::MCGlobalController & controller)
 {
   auto & ctl = controller.controller();
-  auto & robot = ctl.robot(robot_);
+  auto & robot = ctl.robot(pluginConfig_.robot);
 }
 
 void RobotModelUpdate::after(mc_control::MCGlobalController & controller) {}

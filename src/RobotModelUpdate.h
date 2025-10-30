@@ -36,6 +36,42 @@ struct RobotUpdate
 #undef MEMBER
 };
 
+struct HumanMeasurementsSchema
+{
+  MC_RTC_NEW_SCHEMA(HumanMeasurementsSchema)
+#define MEMBER(...) MC_RTC_PP_ID(MC_RTC_SCHEMA_MEMBER(HumanMeasurementsSchema, double, __VA_ARGS__))
+  MEMBER(BodyHeight, "BodyHeight", mc_rtc::schema::Interactive, 1.64)
+  MEMBER(FootLength, "FootLength", mc_rtc::schema::Interactive, 0.25)
+  MEMBER(ShoulderHeight, "ShoulderHeight", mc_rtc::schema::Interactive, 1.395)
+  MEMBER(ShoulderWidth, "ShoulderWidth", mc_rtc::schema::Interactive, 0.36)
+  MEMBER(ElbowSpan, "ElbowSpan", mc_rtc::schema::Interactive, 0.785)
+  MEMBER(WristSpan, "WristSpan", mc_rtc::schema::Interactive, 1.235)
+  MEMBER(ArmSpan, "ArmSpan", mc_rtc::schema::Interactive, 1.61)
+  MEMBER(HipHeight, "HipHeight", mc_rtc::schema::Interactive, 0.905)
+  MEMBER(HipWidth, "HipWidth", mc_rtc::schema::Interactive, 0.23)
+  MEMBER(KneeHeight, "KneeHeight", mc_rtc::schema::Interactive, 0.5)
+  MEMBER(AnkleHeight, "AnkleHeight", mc_rtc::schema::Interactive, 0.135)
+  MEMBER(ExtraShoe, "ExtraShoe", mc_rtc::schema::Interactive, 0.0)
+#undef MEMBER
+};
+
+struct PluginConfigSchema
+{
+  MC_RTC_NEW_SCHEMA(PluginConfigSchema)
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, std::string, robot, "robot", mc_rtc::schema::None, "")
+  using HumanMeasurementsMap = std::map<std::string, HumanMeasurementsSchema>;
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,
+                       HumanMeasurementsMap,
+                       human,
+                       "human",
+                       mc_rtc::schema::None,
+                       HumanMeasurementsMap{})
+  using JointsVector = std::vector<RobotUpdateJoint>;
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, JointsVector, joints, "joints", mc_rtc::schema::None, JointsVector{})
+  using BodiesVector = std::vector<RobotUpdateBody>;
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, BodiesVector, bodies, "bodies", mc_rtc::schema::None, BodiesVector{})
+};
+
 struct RobotModelUpdate : public mc_control::GlobalPlugin
 {
   void init(mc_control::MCGlobalController & controller, const mc_rtc::Configuration & config) override;
@@ -71,7 +107,6 @@ protected:
   void configFromHumanMeasurements(const std::string & humanName);
 
 protected:
-  std::string robot_;
   bool firstScale_ = true;
   RobotUpdate robotUpdate;
   RobotUpdate defaultRobotUpdate_;
@@ -79,6 +114,7 @@ protected:
 
 private:
   mc_rtc::Configuration config_;
+  PluginConfigSchema pluginConfig_;
 };
 
 } // namespace mc_plugin
