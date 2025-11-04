@@ -3,8 +3,10 @@
 #include <mc_control/GlobalPluginMacros.h>
 #include <mc_rbdyn/RobotLoader.h>
 #include <mc_rtc/Configuration.h>
+#include <mc_rtc/logging.h>
 #include <sch-core/S_Polyhedron.h>
 #include "Convex.h"
+#include <algorithm>
 
 namespace mc_plugin
 {
@@ -25,16 +27,73 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
 
   mc_rtc::log::info("[RobotModelUpdate] Loading plugin configuration schema from config");
   pluginConfig_.load(config);
-  if(pluginConfig_.robot.empty())
+  auto & robotName = pluginConfig_.robot;
+  if(robotName.empty())
   {
-    pluginConfig_.robot = ctl.robot().name();
-    mc_rtc::log::info("[RobotModelUpdate] Robot is {}", pluginConfig_.robot);
+    mc_rtc::log::warning("[RobotModelUpdate] No robot specified in the configuration.\nIf this is intended you can "
+                         "disregard this warning.\nOtherwise please set the 'robot' property, or you may manually "
+                         "register robots to be updated with the RobotModelUpdate::registerRobot datastore call");
+  }
+  else
+  {
+    if(!ctl.hasRobot(robotName))
+    {
+      mc_rtc::log::error_and_throw("[RobotModelUpdate] No robot named '{}' in the controller", robotName);
+    }
+    mc_rtc::log::info("[RobotModelUpdate] will update control robot {}", robotName);
+    extraRobots_.emplace(&ctl.robot(robotName), []() {});
+    mc_rtc::log::info("[RobotModelUpdate] will update output robot {}", robotName);
+    extraRobots_.emplace(&ctl.outputRobot(robotName), []() {});
+
+    // TODO generalize for all robots
+    if(pluginConfig_.publishAsVisual)
+    {
+      auto & robot = ctl.robot(robotName);
+      for(const auto & visual : robot.module()._visual)
+      {
+        for(size_t i = 0; i < visual.second.size(); i++)
+        {
+          const auto & v = visual.second[i];
+          ctl.gui()->addElement(
+              {"Human", "Visuals"},
+              mc_rtc::gui::Visual(
+                  fmt::format("{}_{}", visual.first, i), [&v]() -> const auto & { return v; },
+                  [&robot, &visual]()
+                  { return robot.collisionTransform(visual.first) * robot.frame(visual.first).position(); }));
+        }
+      }
+
+      // remove automatically added gui robot model (not updated)
+      ctl.gui()->removeElement({"Robots"}, "human");
+    }
   }
 
-  auto & robot = ctl.robot(pluginConfig_.robot);
   ctl.datastore().make_call("RobotModelUpdate::LoadConfig", [this, &ctl]() { configFromXsens(ctl); });
   ctl.datastore().make_call("RobotModelUpdate::UpdateModel", [this, &ctl]() { updateRobotModel(ctl); });
-
+  ctl.datastore().make_call("RobotModelUpdate::registerRobot",
+                            [this, &ctl](mc_rbdyn::Robot & extRobot, std::function<void()> callback)
+                            {
+                              mc_rtc::log::info("RobotModelUpdate::registerRobot: adding robot {}", extRobot.name());
+                              extraRobots_.emplace(&extRobot, callback);
+                            });
+  ctl.datastore().make_call("RobotModelUpdate::unregisterRobot",
+                            [this, &ctl](mc_rbdyn::Robot & extRobot)
+                            {
+                              auto it =
+                                  std::find_if(extraRobots_.begin(), extraRobots_.end(),
+                                               [&extRobot](const ExtraRobot & er) { return er.robot == &extRobot; });
+                              if(it != extraRobots_.end())
+                              {
+                                extraRobots_.erase(it);
+                              }
+                            });
+  ctl.datastore().make_call("RobotModelUpdate::updateRobotModel",
+                            [this, &ctl](mc_rbdyn::Robot & extRobot)
+                            {
+                              mc_rtc::log::info("[RobotModelUpdate::updateRobotModel] updating robot '{}'",
+                                                extRobot.name());
+                              updateRobotModel(extRobot);
+                            });
   // mc_rtc::gui::PolyhedronConfig polyConfig;
   // polyConfig.triangle_color = {0, 0.9, 0, 0.5};
   // polyConfig.vertices_config.color = {0, 1, 0, 0.5};
@@ -64,34 +123,15 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
   //   }
   // }
 
-  for(const auto & visual : robot.module()._visual)
-  {
-    for(size_t i = 0; i < visual.second.size(); i++)
-    {
-      const auto & v = visual.second[i];
-      ctl.gui()->addElement({"Human", "Visuals"},
-                            mc_rtc::gui::Visual(
-                                fmt::format("{}_{}", visual.first, i), [&v]() -> const auto & { return v; },
-                                [&robot, &visual]() {
-                                  return robot.collisionTransform(visual.first) * robot.frame(visual.first).position();
-                                }));
-    }
-  }
-
-  // remove automatically added gui robot model (not updated)
-  ctl.gui()->removeElement({"Robots"}, "human");
-
   reset(controller);
 }
 
 void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
 {
   mc_rtc::log::info("RobotModelUpdate::reset called");
-  auto & robotName = pluginConfig_.robot;
 
   auto & ctl = controller.controller();
   auto & gui = *ctl.gui();
-  auto & robot = ctl.robot(robotName);
 
   std::vector<RobotUpdateJoint> joints;
 
@@ -113,7 +153,7 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
   }
 
   gui.removeElements(this);
-  gui.addElement(this, {"Plugin", "RobotModelUpdate", robotName},
+  gui.addElement(this, {"Plugin", "RobotModelUpdate"},
                  mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
                  mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }),
                  mc_rtc::gui::ComboInput(
@@ -128,7 +168,7 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
                                        updateRobotModel(ctl);
                                      }));
 
-  robotUpdate.addToGUI(gui, {"Plugin", "RobotModelUpdate", robotName}, "Update robot model from loaded config",
+  robotUpdate.addToGUI(gui, {"Plugin", "RobotModelUpdate"}, "Update robot model from loaded config",
                        [this, &ctl]()
                        {
                          mc_rtc::log::info("Updated robot schema:\n{}", robotUpdate.dump(true, true));
@@ -464,113 +504,112 @@ void RobotModelUpdate::resetToDefault(mc_control::MCController & ctl)
   updateRobotModel(ctl);
 }
 
-void RobotModelUpdate::updateRobotModel(mc_control::MCController & ctl)
+void RobotModelUpdate::updateRobotModel(mc_rbdyn::Robot & robot)
 {
-  auto & robot = ctl.robot(pluginConfig_.robot);
-  auto & outputRobot = ctl.outputRobot(pluginConfig_.robot);
-
-  auto updateRobot = [&](mc_rbdyn::Robot & robot, const RobotUpdate & robotUpdate)
+  mc_rtc::log::info("Update robot model: {}", robot.name());
+  for(const auto & joint : robotUpdate.joints)
   {
-    for(const auto & joint : robotUpdate.joints)
+    if(robot.hasJoint(joint.name))
     {
-      if(robot.hasJoint(joint.name))
-      {
-        auto jIdx = robot.jointIndexByName(joint.name);
-        // getting original relative transform of joint
-        auto originalTransform = robot.mb().transform(jIdx);
-        auto newTransform = originalTransform;
-        // updating with new translation while keeping same orientation
-        newTransform.translation() = joint.relTranslation;
-        robot.mb().transform(jIdx, newTransform);
-        mc_rtc::log::info("Updated transform for joint {} from {} to {}", joint.name,
-                          originalTransform.translation().transpose(), newTransform.translation().transpose());
-      }
-    }
-
-    for(const auto & surface : robot.availableSurfaces())
-    {
-      // for all surfaces on the robot, find the parent body
-      auto parentName = robot.surface(surface).bodyName();
-      auto newScale = Eigen::Vector3d(1, 1, 1);
-      for(const auto & body : robotUpdate.bodies)
-      {
-        // take new scale of the parent body of the surface
-        if(body.name == parentName)
-        {
-          newScale = body.scale;
-          mc_rtc::log::info("Updated scale for body {} to {}", body.name, newScale.transpose());
-        }
-      }
-      // apply the new scale of the body to the translation of the surface transform
-      auto originalTransform = robot.surface(surface).X_b_s();
+      auto jIdx = robot.jointIndexByName(joint.name);
+      // getting original relative transform of joint
+      auto originalTransform = robot.mb().transform(jIdx);
       auto newTransform = originalTransform;
-      newTransform.translation() = newScale.array() * newTransform.translation().array();
-      robot.surface(surface).X_b_s(newTransform);
-      mc_rtc::log::info("Updated transform for surface {} from {} to {}", surface,
+      // updating with new translation while keeping same orientation
+      newTransform.translation() = joint.relTranslation;
+      robot.mb().transform(jIdx, newTransform);
+      mc_rtc::log::info("Updated transform for joint {} from {} to {}", joint.name,
                         originalTransform.translation().transpose(), newTransform.translation().transpose());
-      // XXX update associated frame as well ! after instanciation frames and surfaces are dissociated
-      robot.frame(surface).X_p_f(newTransform);
     }
+  }
 
-    for(const auto & convex : robot.convexes())
-    {
-      for(const auto & body : robotUpdate.bodies)
-      {
-        if(convex.first == body.name)
-        {
-          auto originalConvex = convex.second.second;
-          // check we can actually cast the convex to a polyhedron
-          if(auto poly = std::dynamic_pointer_cast<sch::S_Polyhedron>(originalConvex))
-          {
-            auto vertices = poly->getPolyhedronAlgorithm()->vertexes_;
-            for(auto vertex : vertices)
-            {
-              auto origVertexCoord = vertex->getCoordinates();
-              vertex->setCoordinates(origVertexCoord.m_x * body.scale.x(), origVertexCoord.m_y * body.scale.y(),
-                                     origVertexCoord.m_z * body.scale.z());
-            }
-          }
-          // careful: if there were existing collision constraints on the convex, they need to be removed and readded
-          mc_rtc::log::info("Updated convex {} with scale {}", convex.first, body.scale.transpose());
-        }
-      }
-    }
-
-    auto & visuals = const_cast<mc_rbdyn::RobotModule &>(robot.module())._visual;
+  for(const auto & surface : robot.availableSurfaces())
+  {
+    // for all surfaces on the robot, find the parent body
+    auto parentName = robot.surface(surface).bodyName();
+    auto newScale = Eigen::Vector3d(1, 1, 1);
     for(const auto & body : robotUpdate.bodies)
     {
-      mc_rtc::log::info("Processing visuals for body {}", body.name);
-      if(visuals.find(body.name) == visuals.end())
+      // take new scale of the parent body of the surface
+      if(body.name == parentName)
       {
-        mc_rtc::log::info("No visuals found for body {}", body.name);
-        continue;
-      }
-      for(auto & visual : visuals[body.name])
-      {
-        if(visual.geometry.type == rbd::parsers::Geometry::MESH)
-        {
-          auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(visual.geometry.data);
-          mesh.scaleV = mesh.scaleV.cwiseProduct(body.scale);
-        }
+        newScale = body.scale;
+        mc_rtc::log::info("Updated scale for body {} to {}", body.name, newScale.transpose());
       }
     }
+    // apply the new scale of the body to the translation of the surface transform
+    auto originalTransform = robot.surface(surface).X_b_s();
+    auto newTransform = originalTransform;
+    newTransform.translation() = newScale.array() * newTransform.translation().array();
+    robot.surface(surface).X_b_s(newTransform);
+    mc_rtc::log::info("Updated transform for surface {} from {} to {}", surface,
+                      originalTransform.translation().transpose(), newTransform.translation().transpose());
+    // XXX update associated frame as well ! after instanciation frames and surfaces are dissociated
+    robot.frame(surface).X_p_f(newTransform);
+  }
 
-    robot.forwardKinematics();
-    robot.forwardVelocity();
-    robot.forwardAcceleration();
-  };
+  for(const auto & convex : robot.convexes())
+  {
+    for(const auto & body : robotUpdate.bodies)
+    {
+      if(convex.first == body.name)
+      {
+        auto originalConvex = convex.second.second;
+        // check we can actually cast the convex to a polyhedron
+        if(auto poly = std::dynamic_pointer_cast<sch::S_Polyhedron>(originalConvex))
+        {
+          auto vertices = poly->getPolyhedronAlgorithm()->vertexes_;
+          for(auto vertex : vertices)
+          {
+            auto origVertexCoord = vertex->getCoordinates();
+            vertex->setCoordinates(origVertexCoord.m_x * body.scale.x(), origVertexCoord.m_y * body.scale.y(),
+                                   origVertexCoord.m_z * body.scale.z());
+          }
+        }
+        // careful: if there were existing collision constraints on the convex, they need to be removed and readded
+        mc_rtc::log::info("Updated convex {} with scale {}", convex.first, body.scale.transpose());
+      }
+    }
+  }
 
-  updateRobot(robot, robotUpdate);
-  updateRobot(outputRobot, robotUpdate);
+  auto & visuals = const_cast<mc_rbdyn::RobotModule &>(robot.module())._visual;
+  for(const auto & body : robotUpdate.bodies)
+  {
+    mc_rtc::log::info("Processing visuals for body {}", body.name);
+    if(visuals.find(body.name) == visuals.end())
+    {
+      mc_rtc::log::info("No visuals found for body {}", body.name);
+      continue;
+    }
+    for(auto & visual : visuals[body.name])
+    {
+      if(visual.geometry.type == rbd::parsers::Geometry::MESH)
+      {
+        auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(visual.geometry.data);
+        mesh.scaleV = mesh.scaleV.cwiseProduct(body.scale);
+      }
+    }
+  }
+
+  robot.forwardKinematics();
+  robot.forwardVelocity();
+  robot.forwardAcceleration();
 }
 
-void RobotModelUpdate::before(mc_control::MCGlobalController & controller)
+void RobotModelUpdate::updateRobotModel(mc_control::MCController & ctl)
 {
-  auto & ctl = controller.controller();
-  auto & robot = ctl.robot(pluginConfig_.robot);
+  // Update all robot models and call their callback to notify the controller that the robot has changed
+  std::for_each(extraRobots_.begin(), extraRobots_.end(),
+                [this](auto & extraRobot)
+                {
+                  updateRobotModel(*extraRobot.robot);
+                  extraRobot.callback();
+                });
 }
 
-void RobotModelUpdate::after(mc_control::MCGlobalController & controller) {}
+void RobotModelUpdate::before(mc_control::MCGlobalController & /* controller */) {}
+
+void RobotModelUpdate::after(mc_control::MCGlobalController & /* controller */) {}
 
 mc_control::GlobalPlugin::GlobalPluginConfiguration RobotModelUpdate::configuration()
 {

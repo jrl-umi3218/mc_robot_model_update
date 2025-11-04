@@ -59,6 +59,7 @@ struct PluginConfigSchema
 {
   MC_RTC_NEW_SCHEMA(PluginConfigSchema)
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, std::string, robot, "robot", mc_rtc::schema::None, "")
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, bool, publishAsVisual, "publishAsVisual", mc_rtc::schema::None, false)
   using HumanMeasurementsMap = std::map<std::string, HumanMeasurementsSchema>;
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,
                        HumanMeasurementsMap,
@@ -71,6 +72,37 @@ struct PluginConfigSchema
   using BodiesVector = std::vector<RobotUpdateBody>;
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, BodiesVector, bodies, "bodies", mc_rtc::schema::None, BodiesVector{})
 };
+
+struct ExtraRobot
+{
+  ExtraRobot(mc_rbdyn::Robot * robot, std::function<void()> callback) : robot(robot), callback(callback) {}
+
+  mc_rbdyn::Robot * robot;
+  std::function<void()> callback;
+
+  bool operator==(const ExtraRobot & other) const
+  {
+    return robot == other.robot;
+  }
+};
+
+} // namespace mc_plugin
+
+namespace std
+{
+template<>
+struct hash<mc_plugin::ExtraRobot>
+{
+  std::size_t operator()(const mc_plugin::ExtraRobot & er) const
+  {
+    // Hash the robot pointer
+    return std::hash<mc_rbdyn::Robot *>{}(er.robot);
+  }
+};
+} // namespace std
+
+namespace mc_plugin
+{
 
 struct RobotModelUpdate : public mc_control::GlobalPlugin
 {
@@ -87,6 +119,7 @@ struct RobotModelUpdate : public mc_control::GlobalPlugin
   ~RobotModelUpdate() override;
 
 protected:
+  void updateRobotModel(mc_rbdyn::Robot & robot);
   void updateRobotModel(mc_control::MCController & ctl);
   void resetToDefault(mc_control::MCController & robot);
 
@@ -115,6 +148,8 @@ protected:
 private:
   mc_rtc::Configuration config_;
   PluginConfigSchema pluginConfig_;
+
+  std::unordered_set<ExtraRobot> extraRobots_;
 };
 
 } // namespace mc_plugin
