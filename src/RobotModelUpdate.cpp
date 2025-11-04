@@ -153,7 +153,7 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
   }
 
   gui.removeElements(this);
-  gui.addElement(this, {"Plugin", "RobotModelUpdate"},
+  gui.addElement(this, {"Plugins", "RobotModelUpdate"},
                  mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
                  mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }),
                  mc_rtc::gui::ComboInput(
@@ -168,7 +168,7 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
                                        updateRobotModel(ctl);
                                      }));
 
-  robotUpdate.addToGUI(gui, {"Plugin", "RobotModelUpdate"}, "Update robot model from loaded config",
+  robotUpdate.addToGUI(gui, {"Plugins", "RobotModelUpdate"}, "Update robot model from loaded config",
                        [this, &ctl]()
                        {
                          mc_rtc::log::info("Updated robot schema:\n{}", robotUpdate.dump(true, true));
