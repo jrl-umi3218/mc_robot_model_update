@@ -59,6 +59,12 @@ struct PluginConfigSchema
 {
   MC_RTC_NEW_SCHEMA(PluginConfigSchema)
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, std::string, robot, "robot", mc_rtc::schema::None, "")
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,
+                       std::string,
+                       pluginName,
+                       "pluginName",
+                       mc_rtc::schema::None,
+                       "RobotModelUpdate")
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, bool, publishAsVisual, "publishAsVisual", mc_rtc::schema::None, false)
   using HumanMeasurementsMap = std::map<std::string, HumanMeasurementsSchema>;
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,
@@ -144,6 +150,7 @@ protected:
   RobotUpdate robotUpdate;
   RobotUpdate defaultRobotUpdate_;
   std::string humanName_ = "";
+  std::string pluginName_ = "";
 
 private:
   mc_rtc::Configuration config_;

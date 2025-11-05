@@ -19,7 +19,7 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
 
   config_ = config;
   mc_rtc::log::info("[RobotModelUpdate] init called with configuration:\n{}", config.dump(true, true));
-  if(auto ctlConfig = ctl.config().find("RobotModelUpdate"))
+  if(auto ctlConfig = ctl.config().find("@RobotModelUpdatePluginName@"))
   {
     mc_rtc::log::info("[RobotModelUpdate] Merging with controller configuration:\n{}", ctlConfig->dump(true, true));
     config_.load(*ctlConfig);
@@ -68,15 +68,15 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
     }
   }
 
-  ctl.datastore().make_call("RobotModelUpdate::LoadConfig", [this, &ctl]() { configFromXsens(ctl); });
-  ctl.datastore().make_call("RobotModelUpdate::UpdateModel", [this, &ctl]() { updateRobotModel(ctl); });
-  ctl.datastore().make_call("RobotModelUpdate::registerRobot",
+  ctl.datastore().make_call(pluginConfig_.pluginName + "::LoadConfig", [this, &ctl]() { configFromXsens(ctl); });
+  ctl.datastore().make_call(pluginConfig_.pluginName + "::UpdateModel", [this, &ctl]() { updateRobotModel(ctl); });
+  ctl.datastore().make_call(pluginConfig_.pluginName + "::registerRobot",
                             [this, &ctl](mc_rbdyn::Robot & extRobot, std::function<void()> callback)
                             {
                               mc_rtc::log::info("RobotModelUpdate::registerRobot: adding robot {}", extRobot.name());
                               extraRobots_.emplace(&extRobot, callback);
                             });
-  ctl.datastore().make_call("RobotModelUpdate::unregisterRobot",
+  ctl.datastore().make_call(pluginConfig_.pluginName + "::unregisterRobot",
                             [this, &ctl](mc_rbdyn::Robot & extRobot)
                             {
                               auto it =
@@ -87,7 +87,7 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
                                 extraRobots_.erase(it);
                               }
                             });
-  ctl.datastore().make_call("RobotModelUpdate::updateRobotModel",
+  ctl.datastore().make_call(pluginConfig_.pluginName + "::updateRobotModel",
                             [this, &ctl](mc_rbdyn::Robot & extRobot)
                             {
                               mc_rtc::log::info("[RobotModelUpdate::updateRobotModel] updating robot '{}'",
@@ -153,22 +153,22 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
   }
 
   gui.removeElements(this);
-  gui.addElement(this, {"Plugins", "RobotModelUpdate"},
+  gui.addElement(this, {"Plugins", pluginConfig_.pluginName},
                  mc_rtc::gui::Button("Reset to default", [this, &ctl]() { resetToDefault(ctl); }),
                  mc_rtc::gui::Button("Load Xsens config", [this, &ctl]() { configFromXsens(ctl); }),
                  mc_rtc::gui::ComboInput(
                      "Load Human Measurement config", humanNames, [this]() { return humanName_; },
                      [this](const std::string & humanName) { configFromHumanMeasurements(humanName); }));
 
-  gui.addElement(this, {},
-                 mc_rtc::gui::Button("Rescale human model",
-                                     [this, &ctl]()
-                                     {
-                                       configFromXsens(ctl);
-                                       updateRobotModel(ctl);
-                                     }));
+  // gui.addElement(this, {},
+  //                mc_rtc::gui::Button("Rescale human model",
+  //                                    [this, &ctl]()
+  //                                    {
+  //                                      configFromXsens(ctl);
+  //                                      updateRobotModel(ctl);
+  //                                    }));
 
-  robotUpdate.addToGUI(gui, {"Plugins", "RobotModelUpdate"}, "Update robot model from loaded config",
+  robotUpdate.addToGUI(gui, {"Plugins", pluginConfig_.pluginName}, "Update robot model from loaded config",
                        [this, &ctl]()
                        {
                          mc_rtc::log::info("Updated robot schema:\n{}", robotUpdate.dump(true, true));
@@ -622,4 +622,4 @@ mc_control::GlobalPlugin::GlobalPluginConfiguration RobotModelUpdate::configurat
 
 } // namespace mc_plugin
 
-EXPORT_MC_RTC_PLUGIN("RobotModelUpdate", mc_plugin::RobotModelUpdate)
+EXPORT_MC_RTC_PLUGIN("@RobotModelUpdatePluginName@", mc_plugin::RobotModelUpdate)
