@@ -45,48 +45,18 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
     mc_rtc::log::info("[RobotModelUpdate] will update output robot {}", robotName);
     extraRobots_.emplace(&ctl.outputRobot(robotName), []() {});
 
-    // TODO generalize for all robots
-    if(pluginConfig_.publishAsVisual)
-    {
-      auto & robot = ctl.robot(robotName);
-      for(const auto & visual : robot.module()._visual)
-      {
-        for(size_t i = 0; i < visual.second.size(); i++)
-        {
-          const auto & v = visual.second[i];
-          ctl.gui()->addElement(
-              {"Human", "Visuals"},
-              mc_rtc::gui::Visual(
-                  fmt::format("{}_{}", visual.first, i), [&v]() -> const auto & { return v; },
-                  [&robot, &visual]()
-                  { return robot.collisionTransform(visual.first) * robot.frame(visual.first).position(); }));
-        }
-      }
-
-      // remove automatically added gui robot model (not updated)
-      ctl.gui()->removeElement({"Robots"}, "human");
-    }
+    // remove automatically added gui robot model (not updated)
+    ctl.gui()->removeElement({"Robots"}, "human");
   }
 
   ctl.datastore().make_call(pluginConfig_.pluginName + "::LoadConfig", [this, &ctl]() { configFromXsens(ctl); });
   ctl.datastore().make_call(pluginConfig_.pluginName + "::UpdateModel", [this, &ctl]() { updateRobotModel(ctl); });
   ctl.datastore().make_call(pluginConfig_.pluginName + "::registerRobot",
-                            [this, &ctl](mc_rbdyn::Robot & extRobot, std::function<void()> callback)
-                            {
-                              mc_rtc::log::info("RobotModelUpdate::registerRobot: adding robot {}", extRobot.name());
-                              extraRobots_.emplace(&extRobot, callback);
+                            [this, &ctl](mc_rbdyn::Robot & extRobot, std::function<void()> callback) {
+                              registerRobot(ctl, std::move(ExtraRobot{&extRobot, callback}));
                             });
   ctl.datastore().make_call(pluginConfig_.pluginName + "::unregisterRobot",
-                            [this, &ctl](mc_rbdyn::Robot & extRobot)
-                            {
-                              auto it =
-                                  std::find_if(extraRobots_.begin(), extraRobots_.end(),
-                                               [&extRobot](const ExtraRobot & er) { return er.robot == &extRobot; });
-                              if(it != extraRobots_.end())
-                              {
-                                extraRobots_.erase(it);
-                              }
-                            });
+                            [this, &ctl](mc_rbdyn::Robot & extRobot) { unregisterRobot(ctl, extRobot); });
   ctl.datastore().make_call(pluginConfig_.pluginName + "::updateRobotModel",
                             [this, &ctl](mc_rbdyn::Robot & extRobot)
                             {
@@ -94,35 +64,6 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
                                                 extRobot.name());
                               updateRobotModel(extRobot);
                             });
-  // mc_rtc::gui::PolyhedronConfig polyConfig;
-  // polyConfig.triangle_color = {0, 0.9, 0, 0.5};
-  // polyConfig.vertices_config.color = {0, 1, 0, 0.5};
-  // polyConfig.show_vertices = false;
-  // polyConfig.edge_config.color = {0, 1, 0, 0.5};
-  // polyConfig.show_edges = false;
-
-  // for(const auto & [convexName, convexPair] : robot.convexes())
-  // {
-  //   const auto & bodyName = convexPair.first;
-  //   const auto & object = convexPair.second;
-
-  //   if(auto poly = std::dynamic_pointer_cast<sch::S_Polyhedron>(object))
-  //   {
-  //     const auto & convexName_ = convexName;
-  //     ctl.gui()->addElement({"Human", "Convex"}, mc_rtc::gui::Convex(
-  //                                                    convexName, polyConfig, [poly]() -> const auto & { return poly;
-  //                                                    }, [bodyName, convexName_, &robot]()
-  //                                                    {
-  //                                                      const sva::PTransformd X_0_b =
-  //                                                      robot.frame(bodyName).position(); const sva::PTransformd &
-  //                                                      X_b_c =
-  //                                                          robot.collisionTransform(convexName_);
-  //                                                      sva::PTransformd X_0_c = X_b_c * X_0_b;
-  //                                                      return X_0_c;
-  //                                                    }));
-  //   }
-  // }
-
   reset(controller);
 }
 
@@ -175,6 +116,78 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
                          updateRobotModel(ctl);
                        });
 }
+
+void RobotModelUpdate::registerRobot(mc_control::MCController & ctl, ExtraRobot && extraRobot)
+{
+  mc_rtc::log::info("RobotModelUpdate::registerRobot: adding robot {}", extraRobot.robot->name());
+  extraRobots_.emplace(extraRobot);
+  addRobotToGUI(*ctl.gui(), *extraRobot.robot);
+}
+
+void RobotModelUpdate::unregisterRobot(mc_control::MCController & ctl, mc_rbdyn::Robot & extRobot)
+{
+  mc_rtc::log::info("RobotModelUpdate::unregisterRobot: removing robot {}", extRobot.name());
+  removeRobotFromGUI(*ctl.gui(), extRobot);
+  auto it = std::find_if(extraRobots_.begin(), extraRobots_.end(),
+                         [&extRobot](const ExtraRobot & er) { return er.robot == &extRobot; });
+  if(it != extraRobots_.end())
+  {
+    extraRobots_.erase(it);
+  }
+}
+
+void RobotModelUpdate::addRobotToGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot)
+{
+  // TODO generalize for all robots
+  if(pluginConfig_.publishAsVisual)
+  {
+    for(const auto & visual : robot.module()._visual)
+    {
+      for(size_t i = 0; i < visual.second.size(); i++)
+      {
+        const auto & v = visual.second[i];
+        gui.addElement({"Plugins", pluginConfig_.pluginName, "Human", "Visuals"},
+                       mc_rtc::gui::Visual(
+                           fmt::format("{}_{}", visual.first, i), [&v]() -> const auto & { return v; },
+                           [&robot, &visual]()
+                           { return robot.collisionTransform(visual.first) * robot.frame(visual.first).position(); }));
+      }
+    }
+  }
+
+  if(pluginConfig_.publishConvex)
+  {
+    mc_rtc::gui::PolyhedronConfig polyConfig;
+    polyConfig.triangle_color = {0, 0.9, 0, 0.5};
+    polyConfig.vertices_config.color = {0, 1, 0, 0.5};
+    polyConfig.show_vertices = false;
+    polyConfig.edge_config.color = {0, 1, 0, 0.5};
+    polyConfig.show_edges = false;
+
+    for(const auto & [convexName, convexPair] : robot.convexes())
+    {
+      const auto & bodyName = convexPair.first;
+      const auto & object = convexPair.second;
+
+      if(auto poly = std::dynamic_pointer_cast<sch::S_Polyhedron>(object))
+      {
+        const auto & convexName_ = convexName;
+        gui.addElement({"Plugins", pluginConfig_.pluginName, "Human", "Convex"},
+                       mc_rtc::gui::Convex(
+                           convexName, polyConfig, [poly]() -> const auto & { return poly; },
+                           [bodyName, convexName_, &robot]()
+                           {
+                             const sva::PTransformd X_0_b = robot.frame(bodyName).position();
+                             const sva::PTransformd & X_b_c = robot.collisionTransform(convexName_);
+                             sva::PTransformd X_0_c = X_b_c * X_0_b;
+                             return X_0_c;
+                           }));
+      }
+    }
+  }
+}
+
+void RobotModelUpdate::removeRobotFromGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot) {}
 
 void RobotModelUpdate::configFromHumanMeasurements(const std::string & humanName)
 {

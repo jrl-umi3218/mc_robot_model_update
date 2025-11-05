@@ -5,6 +5,7 @@
 #pragma once
 
 #include <mc_control/GlobalPlugin.h>
+#include <mc_rtc/gui/StateBuilder.h>
 
 namespace mc_plugin
 {
@@ -66,6 +67,7 @@ struct PluginConfigSchema
                        mc_rtc::schema::None,
                        "RobotModelUpdate")
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, bool, publishAsVisual, "publishAsVisual", mc_rtc::schema::None, false)
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, bool, publishConvex, "publishConvex", mc_rtc::schema::None, false)
   using HumanMeasurementsMap = std::map<std::string, HumanMeasurementsSchema>;
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,
                        HumanMeasurementsMap,
@@ -125,6 +127,10 @@ struct RobotModelUpdate : public mc_control::GlobalPlugin
   ~RobotModelUpdate() override;
 
 protected:
+  void registerRobot(mc_control::MCController & ctl, ExtraRobot && extraRobot);
+  void unregisterRobot(mc_control::MCController & ctl, mc_rbdyn::Robot & extRobot);
+  void addRobotToGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot);
+  void removeRobotFromGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot);
   void updateRobotModel(mc_rbdyn::Robot & robot);
   void updateRobotModel(mc_control::MCController & ctl);
   void resetToDefault(mc_control::MCController & robot);
