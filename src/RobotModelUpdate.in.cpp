@@ -40,10 +40,8 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
     {
       mc_rtc::log::error_and_throw("[RobotModelUpdate] No robot named '{}' in the controller", robotName);
     }
-    mc_rtc::log::info("[RobotModelUpdate] will update control robot {}", robotName);
-    extraRobots_.emplace(&ctl.robot(robotName), []() {});
-    mc_rtc::log::info("[RobotModelUpdate] will update output robot {}", robotName);
-    extraRobots_.emplace(&ctl.outputRobot(robotName), []() {});
+    registerRobot(ctl, ExtraRobot{&ctl.robot(robotName), []() {}});
+    registerRobot(ctl, ExtraRobot{&ctl.outputRobot(robotName), []() {}});
 
     // remove automatically added gui robot model (not updated)
     ctl.gui()->removeElement({"Robots"}, "human");
@@ -65,6 +63,22 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
                               updateRobotModel(extRobot);
                             });
   reset(controller);
+}
+
+void RobotModelUpdate::addFrames(mc_control::MCController & ctl, mc_rbdyn::Robot & robot, bool show)
+{
+  for(const auto & f : pluginConfig_.frames)
+  {
+    mc_rtc::log::info("Adding frame {} to robot {}", f.name, robot.name());
+    robot.makeFrame(f.name, robot.frame(f.parent), f.X_p_f);
+    auto & frame = f.name;
+    if(show)
+    {
+      ctl.gui()->addElement(
+          {"Plugins", pluginConfig_.pluginName, "Frames"},
+          mc_rtc::gui::Transform(f.name, [&robot, frame]() { return robot.frame(frame).position(); }));
+    }
+  }
 }
 
 void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
@@ -121,6 +135,7 @@ void RobotModelUpdate::registerRobot(mc_control::MCController & ctl, ExtraRobot 
 {
   mc_rtc::log::info("RobotModelUpdate::registerRobot: adding robot {}", extraRobot.robot->name());
   extraRobots_.emplace(extraRobot);
+  addFrames(ctl, *extraRobot.robot, true);
   addRobotToGUI(*ctl.gui(), *extraRobot.robot);
 }
 

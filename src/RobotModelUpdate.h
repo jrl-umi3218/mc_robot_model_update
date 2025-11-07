@@ -5,6 +5,8 @@
 #pragma once
 
 #include <mc_control/GlobalPlugin.h>
+#include <mc_control/MCController.h>
+#include <mc_rtc/Schema.h>
 #include <mc_rtc/gui/StateBuilder.h>
 
 namespace mc_plugin
@@ -56,6 +58,20 @@ struct HumanMeasurementsSchema
 #undef MEMBER
 };
 
+struct FrameDescriptionSchema
+{
+  MC_RTC_NEW_SCHEMA(FrameDescriptionSchema)
+  MC_RTC_SCHEMA_REQUIRED_DEFAULT_MEMBER(FrameDescriptionSchema, std::string, name, "name")
+  MC_RTC_SCHEMA_REQUIRED_DEFAULT_MEMBER(FrameDescriptionSchema, std::string, parent, "name")
+  MC_RTC_SCHEMA_MEMBER(FrameDescriptionSchema,
+                       sva::PTransformd,
+                       X_p_f,
+                       "X_p_f",
+                       mc_rtc::schema::None,
+                       sva::PTransformd::Identity())
+  MC_RTC_SCHEMA_MEMBER(FrameDescriptionSchema, bool, baked, "baked", mc_rtc::schema::None, false)
+};
+
 struct PluginConfigSchema
 {
   MC_RTC_NEW_SCHEMA(PluginConfigSchema)
@@ -75,6 +91,13 @@ struct PluginConfigSchema
                        "human",
                        mc_rtc::schema::None,
                        HumanMeasurementsMap{})
+  using FramesDescriptionVector = std::vector<FrameDescriptionSchema>;
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,
+                       FramesDescriptionVector,
+                       frames,
+                       "frames",
+                       mc_rtc::schema::None,
+                       FramesDescriptionVector{})
   using JointsVector = std::vector<RobotUpdateJoint>;
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, JointsVector, joints, "joints", mc_rtc::schema::None, JointsVector{})
   using BodiesVector = std::vector<RobotUpdateBody>;
@@ -134,6 +157,8 @@ protected:
   void updateRobotModel(mc_rbdyn::Robot & robot);
   void updateRobotModel(mc_control::MCController & ctl);
   void resetToDefault(mc_control::MCController & robot);
+
+  void addFrames(mc_control::MCController & ctl, mc_rbdyn::Robot & robot, bool show = true);
 
   /**
    * Estimate the configuration from Xsens sensors
