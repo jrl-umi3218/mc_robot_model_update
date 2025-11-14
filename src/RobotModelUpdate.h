@@ -39,10 +39,10 @@ struct RobotUpdate
 #undef MEMBER
 };
 
-struct HumanMeasurementsSchema
+struct JointsMeasurementsSchema
 {
-  MC_RTC_NEW_SCHEMA(HumanMeasurementsSchema)
-#define MEMBER(...) MC_RTC_PP_ID(MC_RTC_SCHEMA_MEMBER(HumanMeasurementsSchema, double, __VA_ARGS__))
+  MC_RTC_NEW_SCHEMA(JointsMeasurementsSchema)
+#define MEMBER(...) MC_RTC_PP_ID(MC_RTC_SCHEMA_MEMBER(JointsMeasurementsSchema, double, __VA_ARGS__))
   MEMBER(BodyHeight, "BodyHeight", mc_rtc::schema::Interactive, 1.64)
   MEMBER(FootLength, "FootLength", mc_rtc::schema::Interactive, 0.25)
   MEMBER(ShoulderHeight, "ShoulderHeight", mc_rtc::schema::Interactive, 1.395)
@@ -56,6 +56,24 @@ struct HumanMeasurementsSchema
   MEMBER(AnkleHeight, "AnkleHeight", mc_rtc::schema::Interactive, 0.135)
   MEMBER(ExtraShoe, "ExtraShoe", mc_rtc::schema::Interactive, 0.0)
 #undef MEMBER
+};
+
+struct HumanMeasurementsSchema
+{
+  MC_RTC_NEW_SCHEMA(HumanMeasurementsSchema)
+  MC_RTC_SCHEMA_MEMBER(HumanMeasurementsSchema,
+                       JointsMeasurementsSchema,
+                       joints,
+                       "joints",
+                       mc_rtc::schema::None,
+                       JointsMeasurementsSchema{})
+  using RobotUpdateBodiesVector = std::vector<RobotUpdateBody>;
+  MC_RTC_SCHEMA_MEMBER(HumanMeasurementsSchema,
+                       RobotUpdateBodiesVector,
+                       bodies,
+                       "bodies",
+                       mc_rtc::schema::None,
+                       RobotUpdateBodiesVector{})
 };
 
 struct FrameDescriptionSchema
@@ -82,7 +100,7 @@ struct PluginConfigSchema
                        "pluginName",
                        mc_rtc::schema::None,
                        "RobotModelUpdate")
-  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, bool, publishAsVisual, "publishAsVisual", mc_rtc::schema::None, false)
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, bool, publishVisual, "publishVisual", mc_rtc::schema::None, false)
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, bool, publishConvex, "publishConvex", mc_rtc::schema::None, false)
   using HumanMeasurementsMap = std::map<std::string, HumanMeasurementsSchema>;
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,

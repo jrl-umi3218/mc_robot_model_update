@@ -51,7 +51,7 @@ void RobotModelUpdate::init(mc_control::MCGlobalController & controller, const m
   ctl.datastore().make_call(pluginConfig_.pluginName + "::UpdateModel", [this, &ctl]() { updateRobotModel(ctl); });
   ctl.datastore().make_call(pluginConfig_.pluginName + "::registerRobot",
                             [this, &ctl](mc_rbdyn::Robot & extRobot, std::function<void()> callback) {
-                              registerRobot(ctl, std::move(ExtraRobot{&extRobot, callback}));
+                              registerRobot(ctl, ExtraRobot{&extRobot, callback});
                             });
   ctl.datastore().make_call(pluginConfig_.pluginName + "::unregisterRobot",
                             [this, &ctl](mc_rbdyn::Robot & extRobot) { unregisterRobot(ctl, extRobot); });
@@ -153,25 +153,38 @@ void RobotModelUpdate::unregisterRobot(mc_control::MCController & ctl, mc_rbdyn:
 
 void RobotModelUpdate::addRobotToGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot)
 {
-  // TODO generalize for all robots
-  if(pluginConfig_.publishAsVisual)
+  if(pluginConfig_.publishVisual)
   {
     for(const auto & visual : robot.module()._visual)
     {
+      const auto & bodyName = visual.first;
       for(size_t i = 0; i < visual.second.size(); i++)
       {
-        const auto & v = visual.second[i];
-        gui.addElement({"Plugins", pluginConfig_.pluginName, "Human", "Visuals"},
+        // TODO: allow to customize visual display (transparency, etc)
+        auto & v = const_cast<rbd::parsers::Visual &>(visual.second[i]);
+        auto visualName = fmt::format("{}_{}", visual.first, i);
+        ;
+        if(v.name.empty())
+        {
+          v.name = visualName;
+        }
+        else
+        {
+          visualName = v.name;
+        }
+
+        gui.addElement(this, {"Plugins", pluginConfig_.pluginName, "Human", "Visuals"},
                        mc_rtc::gui::Visual(
-                           fmt::format("{}_{}", visual.first, i), [&v]() -> const auto & { return v; },
-                           [&robot, &visual]()
-                           { return robot.collisionTransform(visual.first) * robot.frame(visual.first).position(); }));
+                           visualName, [&v]() -> const auto & { return v; },
+                           [&robot, bodyName]()
+                           { return robot.collisionTransform(bodyName) * robot.frame(bodyName).position(); }));
       }
     }
   }
 
   if(pluginConfig_.publishConvex)
   {
+    // TODO: load polyhedron configuration
     mc_rtc::gui::PolyhedronConfig polyConfig;
     polyConfig.triangle_color = {0, 0.9, 0, 0.5};
     polyConfig.vertices_config.color = {0, 1, 0, 0.5};
@@ -214,7 +227,8 @@ void RobotModelUpdate::configFromHumanMeasurements(const std::string & humanName
         humanName);
     return;
   }
-  const auto & bodyDim = pluginConfig_.human.at(humanName_);
+  const auto & humanConfig = pluginConfig_.human.at(humanName_);
+  const auto & bodyDim = humanConfig.joints;
   double BodyHeight = bodyDim.BodyHeight;
   double HipHeight = bodyDim.HipHeight;
   double LegHeight = HipHeight - 0.1;
@@ -247,6 +261,8 @@ void RobotModelUpdate::configFromHumanMeasurements(const std::string & humanName
   joints.push_back(RobotUpdateJoint{"RLeg_0", Eigen::Vector3d{0, -LegsWidth / 2, LegHeight - HipHeight}});
   joints.push_back(RobotUpdateJoint{"RShin_0", Eigen::Vector3d{0, 0, KneeHeight - LegHeight}});
   joints.push_back(RobotUpdateJoint{"RAnkle_0", Eigen::Vector3d{0, 0, AnkleHeight - KneeHeight}});
+
+  robotUpdate.bodies = humanConfig.bodies;
 }
 
 void RobotModelUpdate::configFromXsens(mc_control::MCController & ctl)
