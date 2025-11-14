@@ -65,7 +65,8 @@ protected:
   void removeRobotFromGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot);
   void updateRobotModel(mc_rbdyn::Robot & robot);
   void updateRobotModel(mc_control::MCController & ctl);
-  void resetToDefault(mc_control::MCController & robot);
+  void resetToDefault(mc_control::MCController & ctl);
+  void resetRobotToDefault(mc_rbdyn::Robot & robot);
 
   void addFrames(mc_control::MCController & ctl, mc_rbdyn::Robot & robot, bool show = true);
 

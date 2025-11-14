@@ -502,46 +502,49 @@ void RobotModelUpdate::configFromXsens(mc_control::MCController & ctl)
   }
 }
 
-void RobotModelUpdate::resetToDefault(mc_control::MCController & ctl)
+void RobotModelUpdate::resetRobotToDefault(mc_rbdyn::Robot & robot)
 {
-  auto resetRobot = [this](mc_rbdyn::Robot & robot)
+  auto robots = mc_rbdyn::loadRobot(robot.module());
+  auto & defaultRobot = robots->robot();
+  robot.mb() = defaultRobot.mb();
+  robot.mbg() = defaultRobot.mbg();
+
+  // Restore scaleV of all visuals
+  auto & visuals = const_cast<mc_rbdyn::RobotModule &>(robot.module())._visual;
+  const auto & originalVisuals = defaultRobot.module()._visual;
+  for(const auto & body : robot.mb().bodies())
   {
-    auto robots = mc_rbdyn::loadRobot(robot.module());
-    auto & defaultRobot = robots->robot();
-    robot.mb() = defaultRobot.mb();
-    robot.mbg() = defaultRobot.mbg();
+    auto bName = body.name();
+    mc_rtc::log::info("Processing visuals for body {}", bName);
+    if(visuals.count(bName) == 0) continue;
 
-    // Restore scaleV of all visuals
-    auto & visuals = const_cast<mc_rbdyn::RobotModule &>(robot.module())._visual;
-    const auto & originalVisuals = defaultRobot.module()._visual;
-    for(const auto & body : robot.mb().bodies())
+    for(size_t i = 0; i < visuals[bName].size(); i++)
     {
-      auto bName = body.name();
-      mc_rtc::log::info("Processing visuals for body {}", bName);
-      if(visuals.count(bName) == 0) continue;
-
-      for(size_t i = 0; i < visuals[bName].size(); i++)
+      auto & v = visuals[bName][i];
+      const auto & ov = originalVisuals.at(bName)[i];
+      if(v.geometry.type == rbd::parsers::Geometry::MESH && ov.geometry.type == rbd::parsers::Geometry::MESH)
       {
-        auto & v = visuals[bName][i];
-        const auto & ov = originalVisuals.at(bName)[i];
-        if(v.geometry.type == rbd::parsers::Geometry::MESH && ov.geometry.type == rbd::parsers::Geometry::MESH)
-        {
-          auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(v.geometry.data);
-          const auto & oMesh = boost::get<rbd::parsers::Geometry::Mesh>(ov.geometry.data);
-          mesh.scaleV = mesh.scaleV.cwiseQuotient(oMesh.scaleV);
-          mc_rtc::log::info("Resetting visual mesh scale for body {} visual {} to {}", bName, i,
-                            mesh.scaleV.transpose());
-        }
+        auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(v.geometry.data);
+        const auto & oMesh = boost::get<rbd::parsers::Geometry::Mesh>(ov.geometry.data);
+        mesh.scaleV = mesh.scaleV.cwiseQuotient(oMesh.scaleV);
+        mc_rtc::log::info("Resetting visual mesh scale for body {} visual {} to {}", bName, i, mesh.scaleV.transpose());
       }
     }
+  }
 
-    robot.forwardKinematics();
-    robot.forwardVelocity();
-    robot.forwardAcceleration();
-  };
+  robot.forwardKinematics();
+  robot.forwardVelocity();
+  robot.forwardAcceleration();
+}
 
-  resetRobot(ctl.robot(pluginConfig_.robot));
-  resetRobot(ctl.outputRobot(pluginConfig_.robot));
+void RobotModelUpdate::resetToDefault(mc_control::MCController & ctl)
+{
+  std::for_each(extraRobots_.begin(), extraRobots_.end(),
+                [this](auto & extraRobot)
+                {
+                  resetRobotToDefault(*extraRobot.robot);
+                  extraRobot.callback();
+                });
 
   // Apply default update from config
   robotUpdate = defaultRobotUpdate_;
