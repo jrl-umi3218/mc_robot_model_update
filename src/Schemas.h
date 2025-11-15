@@ -1,6 +1,9 @@
 #pragma once
 #include <mc_rtc/Schema.h>
 
+// TODO:
+// - Uniify use of RobotUpdate and HumanMeasurementSchema
+
 namespace mc_plugin
 {
 
@@ -82,6 +85,12 @@ struct FrameDescriptionSchema
   MC_RTC_SCHEMA_MEMBER(FrameDescriptionSchema, bool, baked, "baked", mc_rtc::schema::None, false)
 };
 
+struct DefaultSchema
+{
+  MC_RTC_NEW_SCHEMA(DefaultSchema)
+  MC_RTC_SCHEMA_MEMBER(DefaultSchema, std::string, human, "human", mc_rtc::schema::None, "")
+};
+
 struct PluginConfigSchema
 {
   MC_RTC_NEW_SCHEMA(PluginConfigSchema)
@@ -112,6 +121,12 @@ struct PluginConfigSchema
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, JointsVector, joints, "joints", mc_rtc::schema::None, JointsVector{})
   using BodiesVector = std::vector<RobotUpdateBody>;
   MC_RTC_SCHEMA_MEMBER(PluginConfigSchema, BodiesVector, bodies, "bodies", mc_rtc::schema::None, BodiesVector{})
+  MC_RTC_SCHEMA_MEMBER(PluginConfigSchema,
+                       DefaultSchema,
+                       defaultConfig,
+                       "defaultConfig",
+                       mc_rtc::schema::None,
+                       DefaultSchema{})
 };
 
 } // namespace mc_plugin

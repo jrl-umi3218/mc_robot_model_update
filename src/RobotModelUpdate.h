@@ -90,6 +90,7 @@ protected:
   bool firstScale_ = true;
   RobotUpdate robotUpdate;
   RobotUpdate defaultRobotUpdate_;
+  std::string defaultHumanName_ = "None";
   std::string humanName_ = "";
   std::string pluginName_ = "";
 

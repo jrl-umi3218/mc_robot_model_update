@@ -76,5 +76,12 @@ human:
       AnkleHeight: 0.135
       ExtraShoe: 0 # Extra thickness of shoe sole (to avoid)
 
+  None:
+    joints: []
+    bodies: []
+
+defaultConfig:
+  human: Alice
+
 # publishAsVisual: true
 # publishConvex: false

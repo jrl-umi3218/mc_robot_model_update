@@ -96,6 +96,13 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
 
   robotUpdate.load(conf);
   defaultRobotUpdate_ = robotUpdate;
+  if(auto humanName = pluginConfig_.defaultConfig.human; humanName.size())
+  {
+    // sets robotUpdate
+    configFromHumanMeasurements(humanName);
+    defaultRobotUpdate_ = robotUpdate;
+    defaultHumanName_ = humanName;
+  }
 
   mc_rtc::log::info("Robot Update is:\n{}", robotUpdate.dump(true, true));
 
@@ -115,14 +122,6 @@ void RobotModelUpdate::reset(mc_control::MCGlobalController & controller)
                      "Load Human Measurement config", humanNames, [this]() { return humanName_; },
                      [this](const std::string & humanName) { configFromHumanMeasurements(humanName); }));
 
-  // gui.addElement(this, {},
-  //                mc_rtc::gui::Button("Rescale human model",
-  //                                    [this, &ctl]()
-  //                                    {
-  //                                      configFromXsens(ctl);
-  //                                      updateRobotModel(ctl);
-  //                                    }));
-
   robotUpdate.addToGUI(gui, {"Plugins", pluginConfig_.pluginName}, "Update robot model from loaded config",
                        [this, &ctl]()
                        {
@@ -135,8 +134,10 @@ void RobotModelUpdate::registerRobot(mc_control::MCController & ctl, ExtraRobot 
 {
   mc_rtc::log::info("RobotModelUpdate::registerRobot: adding robot {}", extraRobot.robot->name());
   extraRobots_.emplace(extraRobot);
-  addFrames(ctl, *extraRobot.robot, true);
-  addRobotToGUI(*ctl.gui(), *extraRobot.robot);
+  auto & robot = *extraRobot.robot;
+  addFrames(ctl, robot, true);
+  addRobotToGUI(*ctl.gui(), robot);
+  updateRobotModel(robot);
 }
 
 void RobotModelUpdate::unregisterRobot(mc_control::MCController & ctl, mc_rbdyn::Robot & extRobot)
@@ -548,6 +549,7 @@ void RobotModelUpdate::resetToDefault(mc_control::MCController & ctl)
 
   // Apply default update from config
   robotUpdate = defaultRobotUpdate_;
+  humanName_ = defaultHumanName_;
   updateRobotModel(ctl);
 }
 
