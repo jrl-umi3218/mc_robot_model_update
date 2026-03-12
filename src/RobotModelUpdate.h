@@ -5,36 +5,44 @@
 #pragma once
 
 #include <mc_control/GlobalPlugin.h>
+#include <mc_control/MCController.h>
+#include <mc_rtc/Schema.h>
+#include <mc_rtc/gui/StateBuilder.h>
+#include "Schemas.h"
 
 namespace mc_plugin
 {
 
-struct RobotUpdateJoint
+struct ExtraRobot
 {
-  MC_RTC_NEW_SCHEMA(RobotUpdateJoint)
-#define MEMBER(...) MC_RTC_PP_ID(MC_RTC_SCHEMA_MEMBER(RobotUpdateJoint, __VA_ARGS__))
-  MEMBER(std::string, name, "Name of the joint", mc_rtc::schema::None, "");
-  MEMBER(Eigen::Vector3d, relTranslation, "relTranslation", mc_rtc::schema::None, Eigen::Vector3d::Zero());
-#undef MEMBER
+  ExtraRobot(mc_rbdyn::Robot * robot, std::function<void()> callback) : robot(robot), callback(callback) {}
+
+  mc_rbdyn::Robot * robot;
+  std::function<void()> callback;
+
+  bool operator==(const ExtraRobot & other) const
+  {
+    return robot == other.robot;
+  }
 };
 
-struct RobotUpdateBody
-{
-  MC_RTC_NEW_SCHEMA(RobotUpdateBody)
-#define MEMBER(...) MC_RTC_PP_ID(MC_RTC_SCHEMA_MEMBER(RobotUpdateBody, __VA_ARGS__))
-  MEMBER(std::string, name, "Name of the body", mc_rtc::schema::None, "");
-  MEMBER(Eigen::Vector3d, scale, "bodyScale", mc_rtc::schema::None, Eigen::Vector3d::Zero());
-#undef MEMBER
-};
+} // namespace mc_plugin
 
-struct RobotUpdate
+namespace std
 {
-  MC_RTC_NEW_SCHEMA(RobotUpdate)
-#define MEMBER(...) MC_RTC_PP_ID(MC_RTC_SCHEMA_OPTIONAL_DEFAULT_MEMBER(RobotUpdate, __VA_ARGS__))
-  MEMBER(std::vector<RobotUpdateJoint>, joints, "joints to update")
-  MEMBER(std::vector<RobotUpdateBody>, bodies, "bodies to update")
-#undef MEMBER
+template<>
+struct hash<mc_plugin::ExtraRobot>
+{
+  std::size_t operator()(const mc_plugin::ExtraRobot & er) const
+  {
+    // Hash the robot pointer
+    return std::hash<mc_rbdyn::Robot *>{}(er.robot);
+  }
 };
+} // namespace std
+
+namespace mc_plugin
+{
 
 struct RobotModelUpdate : public mc_control::GlobalPlugin
 {
@@ -51,17 +59,46 @@ struct RobotModelUpdate : public mc_control::GlobalPlugin
   ~RobotModelUpdate() override;
 
 protected:
+  void registerRobot(mc_control::MCController & ctl, ExtraRobot && extraRobot);
+  void unregisterRobot(mc_control::MCController & ctl, mc_rbdyn::Robot & extRobot);
+  void addRobotToGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot);
+  void removeRobotFromGUI(mc_rtc::gui::StateBuilder & gui, mc_rbdyn::Robot & robot);
+  void updateRobotModel(mc_rbdyn::Robot & robot);
   void updateRobotModel(mc_control::MCController & ctl);
-  void resetToDefault(mc_rbdyn::Robot & robot);
+  void resetToDefault(mc_control::MCController & ctl);
+  void resetRobotToDefault(mc_rbdyn::Robot & robot);
+
+  void addFrames(mc_control::MCController & ctl, mc_rbdyn::Robot & robot, bool show = true);
+
+  /**
+   * Estimate the configuration from Xsens sensors
+   */
   void configFromXsens(mc_control::MCController & ctl);
 
+  /**
+   * Load from a manually provided human measurement configuration
+   * It is located in
+   * ```yaml
+   * human:
+   *  <human_name>:
+   *    ...
+   * ```
+   */
+  void configFromHumanMeasurements(const std::string & humanName);
+
 protected:
-  std::string robot_;
   bool firstScale_ = true;
   RobotUpdate robotUpdate;
+  RobotUpdate defaultRobotUpdate_;
+  std::string defaultHumanName_ = "None";
+  std::string humanName_ = "";
+  std::string pluginName_ = "";
 
 private:
   mc_rtc::Configuration config_;
+  PluginConfigSchema pluginConfig_;
+
+  std::unordered_set<ExtraRobot> extraRobots_;
 };
 
 } // namespace mc_plugin

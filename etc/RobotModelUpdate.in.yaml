@@ -1,16 +1,87 @@
 ---
 
 human:
+  Alice:
+    joints:
+      BodyHeight: 1.63 # Top of the head
+      FootLength: 0.25
+      ShoulderHeight: 1.38 # Height of C7 spine (pointy)
+      ShoulderWidth: 0.36 # Left to right top shoulder bone (so not exactly articulation!)
+      ElbowSpan: 0.76
+      WristSpan: 1.2
+      ArmSpan: 1.59 # This is finger to finger in T pose
+      HipHeight: 0.95 # attachment of leg to hip
+      HipWidth: 0.23 # forward bone of illiac -> ~width of attachment
+      KneeHeight: 0.48 # bottom of upper leg bone
+      AnkleHeight: 0.135
+      ExtraShoe: 0 # Extra thickness of shoe sole (to avoid)
+    # TODO: add option to automatically scale bodies according to limb length changes (cf joints)
+    # This is already done in the xsens case, it should be adapted here
+    bodies: &alice-bodies
+      - name: TorsoLink
+        scale: &alice-scale
+          - 0.9
+          - 0.9
+          - 0.9
+      - name: LArmLink
+        scale: *alice-scale
+      - name: LForearmLink
+        scale: *alice-scale
+      - name: RArmLink
+        scale: *alice-scale
+      - name: RForearmLink
+        scale: *alice-scale
+      - name: HeadLink
+        scale: *alice-scale
+      - name: HipsLink
+        scale: *alice-scale
+      - name: LLegLink
+        scale: *alice-scale
+      - name: RLegLink
+        scale: *alice-scale
+      - name: LShinLink
+        scale: *alice-scale
+      - name: RShinLink
+        scale: *alice-scale
+
   Celia:
-    BodyHeight:  # Top of the head
-    FootLength:
-    ShoulderHeight: # Height of C7 spine (pointy)
-    ShoulderWidth: # Left to right top shoulder bone (so not exactly articulation!)
-    ElbowSpan:
-    WristSpan:
-    ArmSpan: # This is finger to finger in T pose
-    HipHeight: # attachment of leg to hip
-    HipWidth: # forward bone of illiac -> ~width of attachment
-    KneeHeight: # bottom of upper leg bone
-    AnkleHeight:
-    ExtraShoe: 0 # Extra thickness of shoe sole (to avoid)
+    joints:
+      BodyHeight: 1.64 # Top of the head
+      FootLength: 0.25
+      ShoulderHeight: 1.395 # Height of C7 spine (pointy)
+      ShoulderWidth: 0.36 # Left to right top shoulder bone (so not exactly articulation!)
+      ElbowSpan: 0.785
+      WristSpan: 1.235
+      ArmSpan: 1.61 # This is finger to finger in T pose
+      HipHeight: 0.905 # attachment of leg to hip
+      HipWidth: 0.23 # forward bone of illiac -> ~width of attachment
+      KneeHeight: 0.5 # bottom of upper leg bone
+      AnkleHeight: 0.135
+      ExtraShoe: 0 # Extra thickness of shoe sole (to avoid)
+    bodies: *alice-bodies
+
+
+  Arnaud:
+    joints:
+      BodyHeight: 1.75 # Top of the head
+      FootLength: 0.28
+      ShoulderHeight: 1.53 # Height of C7 spine (pointy)
+      ShoulderWidth: 0.35 # Left to right top shoulder bone (so not exactly articulation!)
+      ElbowSpan: 0.85
+      WristSpan: 1.35
+      ArmSpan: 1.74 # This is finger to finger in T pose
+      HipHeight: 1.02 # attachment of leg to hip
+      HipWidth: 0.23 # forward bone of illiac -> ~width of attachment
+      KneeHeight: 0.5 # bottom of upper leg bone
+      AnkleHeight: 0.135
+      ExtraShoe: 0 # Extra thickness of shoe sole (to avoid)
+
+  None:
+    joints: []
+    bodies: []
+
+defaultConfig:
+  human: Alice
+
+# publishAsVisual: true
+# publishConvex: false
